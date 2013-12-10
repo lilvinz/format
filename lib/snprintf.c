@@ -113,7 +113,7 @@ int vsnprintf( char *buf, size_t n, const char *fmt, va_list ap )
     done = format( bufnwrite, (void *)&nbuf, fmt, ap );
     if ( 0 <= done && 0 < n )
     {
-        if ( done >= n ) /* check for buffer overflow (issue 6) */
+        if ( (size_t)done >= n ) /* check for buffer overflow (issue 6) */
             done = n - 1;
 
         buf[done] = '\0';

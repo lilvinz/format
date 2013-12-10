@@ -11,7 +11,7 @@
 /*****************************************************************************/
 
 /* Smaller platforms only support single-precision for everything, and as
-*  well as changing the floating point format it also affects the decimal 
+*  well as changing the floating point format it also affects the decimal
 *  mantissa type.
 */
 #if ( DBL_DIG > 8 ) /* 64-bit doubles */
@@ -344,7 +344,7 @@ static int do_conv_infnan( T_FormatSpec *     pspec,
     point character appears, at least one digit appears before it.  The value
     is rounded to the appropriate number of digits."
 
-   
+
     A unified output model
     ----------------------
 
@@ -357,7 +357,7 @@ static int do_conv_infnan( T_FormatSpec *     pspec,
            PS1           PZ1   n_left   PZ2       PZ3   n_right  PZ4       n_exp = 0       PS2
 
 
-    In the e/E case PZ2 and PZ3 are 0 and n_left is 1, while for the f/F case 
+    In the e/E case PZ2 and PZ3 are 0 and n_left is 1, while for the f/F case
     n_exp is zero.
     Many of these fields are optional, even the DP if no following digits.
 
@@ -434,7 +434,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
     if ( code == 'e' || code == 'E' )
         is_e = 1;
     else
-        is_f = 1;   
+        is_f = 1;
 
     /* Apply default precision */
     if ( pspec->prec < 0 )
@@ -470,7 +470,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
     if ( is_e )
     {
         n_left = 1;
- 
+
         /* Engineering format forces exponent to multiple of 3 */
         if ( pspec->flags & FBANG )
         {
@@ -481,15 +481,15 @@ static int do_conv_efg( T_FormatSpec *     pspec,
            n_left   += m;
            exponent -= m;
         }
-    }    
+    }
     else
     {
         if ( pspec->flags & FBANG )
         {
             static char sitab[] = { 'y', 'z', 'a', 'f', 'p', 'n', 'u', 'm',
-                                    '\0', 
+                                    '\0',
                                     'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y' };
-            int idx = NELEMS(sitab) / 2;
+            size_t idx = NELEMS(sitab) / 2;
 
             while ( idx > 0 && idx < (NELEMS(sitab) - 1) )
             {
@@ -509,10 +509,10 @@ static int do_conv_efg( T_FormatSpec *     pspec,
     if ( is_f && really_g )
     {
         DEC_MANT_REG_TYPE  m = mantissa;
-        int i;
+        int i2;
 
         /* strip extraneous digits */
-        for ( i = sigfig; i > n_left + n_right; i--, m /= 10 );
+        for ( i2 = sigfig; i2 > n_left + n_right; i2--, m /= 10 );
 
         /* strip trailing zeros */
         for ( ; n_right > 0 && m % 10 == 0; m /= 10, n_right-- );
@@ -555,7 +555,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
         if ( exponent < -1 && pspec->prec > 0 )
         {
             pz3 = -1 - exponent;
-            pz3 = MIN( pz3, pspec->prec );
+            pz3 = MIN( pz3, (size_t)pspec->prec );
             length += pz3;
         }
 
@@ -565,7 +565,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
     }
 
     /* Compute trailing zeros */
-    if ( pz3 + n_right < pspec->prec
+    if ( pz3 + n_right < (size_t)pspec->prec
          /* g,G     ... Trailing zeros are removed from the fractional portion
           *         of the result unless the # flag is specified; ...
           */
@@ -575,7 +575,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
         pz4 = pspec->prec - pz3 - n_right;
         length += pz4;
     }
-    else if ( is_f && pz3 + n_right > pspec->prec )
+    else if ( is_f && pz3 + n_right > (size_t)pspec->prec )
     {
         int x = pz3 + n_right - pspec->prec;
         length  -= x;
@@ -730,7 +730,7 @@ static int do_conv_fp( T_FormatSpec * pspec,
     else
     {
         return do_conv_efg( pspec, code, cons, parg, sign, mantissa, exponent );
-    }    
+    }
 }
 
 /*****************************************************************************/
