@@ -427,7 +427,7 @@ static void calc_space_padding( T_FormatSpec * pspec,
 {
     size_t left = 0, right = 0, width = 0;
 
-    if ( length < pspec->width )
+    if ( (int)length < pspec->width )
         width = pspec->width - length;
 
     if ( pspec->flags & FMINUS )
@@ -617,7 +617,7 @@ static int do_conv_s( T_FormatSpec * pspec,
 
     length = STRLEN( s );
     if ( pspec->prec >= 0 )
-        length = MIN( pspec->prec, length );
+        length = MIN( (size_t)pspec->prec, length );
 
     calc_space_padding( pspec, length, &ps1, &ps2 );
 
@@ -881,7 +881,7 @@ static int do_conv_numeric( T_FormatSpec * pspec,
 #endif
         const void *  ptr   = pspec->grouping.ptr;
         size_t        glen  = pspec->grouping.len;
-        char          grp;
+        char          grp   = 0;
         int           wid   = 0;
         unsigned int  decade;
         size_t        d_rem = numWidth;
@@ -931,7 +931,7 @@ static int do_conv_numeric( T_FormatSpec * pspec,
 
             if ( wid )
             {
-                if ( d_rem <= wid )
+                if ( d_rem <= (size_t)wid )
                     break;
 
                 for ( s = idx, n = d_rem - wid; n; n--, s++ )
