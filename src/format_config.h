@@ -93,7 +93,8 @@
     simply do not need this functionality so make it possible to remove it at
     build time.  If used at runtime the call to format will return EXBADFORMAT.
 **/
+#if defined(FORMAT_INCLUDE_FLOAT)
 #define CONFIG_WITH_FP_SUPPORT
-
+#endif
 
 #endif /* FORMAT_CONFIG_H */
