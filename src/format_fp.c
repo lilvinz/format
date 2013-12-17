@@ -632,7 +632,7 @@ static int do_conv_efg( T_FormatSpec *     pspec,
     count += n;
 
     /* RIGHT */
-    e_n = n_right ? mant_to_char( e_s, mantissa, sigfig, n_right, 1 )
+    e_n = n_right ? mant_to_char( e_s, mantissa, sigfig, n_right, 0 )
                   : 0;
 
     n = gen_out( cons, parg, 0, ".", want_dp ? 1 : 0, pz3, e_s, e_n, 0 );
