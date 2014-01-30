@@ -36,16 +36,21 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-/** The system must provide an implementation of the putchar function **/
-extern int putchar( int );
-
 /*****************************************************************************/
 /* Project Includes                                                          */
 /*****************************************************************************/
 
+#include "qchprintf.h"
+
 #include "format.h"
 
-#include "printf.h"
+#include "memstreams.h"
+
+struct format_args
+{
+    void* channel_stream;
+    systime_t timeout;
+};
 
 /*****************************************************************************/
 /* Private function prototypes.  Declare as static.                          */
@@ -53,7 +58,28 @@ extern int putchar( int );
 
 /*****************************************************************************/
 /**
-    General output consumer function.
+    General output consumer function for streams.
+
+    This function calls the generic putchar() function, which it is assumed is
+    available in the target environment.
+
+    @param op      Opaque pointer (UNUSED).
+    @param buf     Pointer to input buffer.
+    @param n       Number of characters from buffer to send to output.
+
+    @return non-NULL.
+**/
+static void * outfunc_stream( void * op, const char * buf, size_t n )
+{
+    struct format_args* args = op;
+
+    chSequentialStreamWrite( (BaseSequentialStream*)args->channel_stream, (const uint8_t*)buf, n );
+
+    return op;
+}
+
+/**
+    General output consumer function for channel.
     
     This function calls the generic putchar() function, which it is assumed is
     available in the target environment.
@@ -64,12 +90,13 @@ extern int putchar( int );
     
     @return non-NULL.
 **/
-static void * outfunc( void * op, const char * buf, size_t n )
+static void * outfunc_channel( void * op, const char * buf, size_t n )
 {
-    while ( n-- )
-        putchar( *buf++ );
+    struct format_args* args = op;
 
-    return (void *)( !NULL );
+    chnWriteTimeout( (BaseChannel*)args->channel_stream, (const uint8_t*)buf, n, args->timeout );
+
+    return op;
 }
 
 /*****************************************************************************/
@@ -85,9 +112,31 @@ static void * outfunc( void * op, const char * buf, size_t n )
     
     @return Number of characters printed to the output, or -1.
 **/
-int vprintf ( const char *fmt, va_list ap )
+int qchvprintf ( BaseSequentialStream* stream, const char *fmt, va_list ap )
 {
-    return format( outfunc, NULL, fmt, ap );
+    struct format_args args =
+    {
+        .channel_stream = stream,
+    };
+    return format( outfunc_stream, &args, fmt, ap );
+}
+
+/**
+    Produce output according to a format string, with optional argument list.
+
+    @param fmt      Format specifier.
+    @param ap       Argument list.
+
+    @return Number of characters printed to the output, or -1.
+**/
+int qchvprintft ( BaseChannel* channel, systime_t timeout, const char *fmt, va_list ap )
+{
+    struct format_args args =
+    {
+        .channel_stream = channel,
+        .timeout = timeout,
+    };
+    return format( outfunc_channel, &args, fmt, ap );
 }
 
 /*****************************************************************************/
@@ -98,15 +147,84 @@ int vprintf ( const char *fmt, va_list ap )
     
     @return Number of characters printed to the output, or -1.
 **/
-int printf ( const char *fmt, ... )
+int qchprintf ( BaseSequentialStream* stream, const char *fmt, ... )
 {
     va_list arg;
     int done;
     
     va_start ( arg, fmt );
-    done = vprintf( fmt, arg );
+    done = qchvprintf( stream, fmt, arg );
     va_end ( arg );
     
+    return done;
+}
+
+/**
+    Produce output according to a format string, with optional arguments.
+
+    @param fmt      Format specifier.
+
+    @return Number of characters printed to the output, or -1.
+**/
+int qchprintft ( BaseChannel* channel, systime_t timeout, const char *fmt, ... )
+{
+    va_list arg;
+    int done;
+
+    va_start ( arg, fmt );
+    done = qchvprintft( channel, timeout, fmt, arg );
+    va_end ( arg );
+
+    return done;
+}
+
+/*****************************************************************************/
+/**
+    Produce output according to a format string, with optional arguments.
+
+    @param buf      Output buffer.
+    @param n        Length of output buffer.
+    @param fmt      Format specifier.
+    @param ap       Argument pointer.
+
+    @return Number of characters written into the output buffer, or -1.
+**/
+int qchvsnprintf( char *buf, size_t n, const char *fmt, va_list ap )
+{
+    MemoryStream ms;
+    BaseSequentialStream *chp;
+
+    /* Memory stream object to be used as a string writer.*/
+    msObjectInit(&ms, (uint8_t *)buf, n, 0);
+
+    /* Performing the print operation using the common code.*/
+    chp = (BaseSequentialStream *)&ms;
+    qchvprintf(chp, fmt, ap);
+
+    /* Final zero and size return.*/
+    chSequentialStreamPut(chp, 0);
+    return ms.eos - 1;
+}
+
+/*****************************************************************************/
+/**
+    Produce output according to a format string, with optional arguments.
+
+    @param buf      Output buffer.
+    @param n        Length of output buffer.
+    @param fmt      Format specifier.
+
+    @return Number of characters written into the output buffer, or -1.
+**/
+int qchsnprintf( char *buf, size_t n, const char *fmt, ... )
+{
+    va_list arg;
+    int done;
+
+    va_start ( arg, fmt );
+    done = qchvsnprintf( buf, n, fmt, arg );
+    va_end ( arg );
+
     return done;
 }
 

@@ -32,16 +32,19 @@
 #ifndef PRINTF_H
 #define PRINTF_H
 
+#include "ch.h"
+#include "io_channel.h"
+
 #include <stdarg.h> /* for va_list */
 #include <stddef.h> /* for size_t */
 
-extern int printf( const char *, ... );
-extern int sprintf( char *, const char *, ... );
-extern int snprintf( char *, size_t, const char *, ... );
+extern int qchprintf( BaseSequentialStream* stream, const char *, ... );
+extern int qchprintft( BaseChannel* channel, systime_t timeout, const char *, ... );
+extern int qchsnprintf( char *, size_t, const char *, ... );
 
-extern int vprintf( const char *, va_list );
-extern int vsprintf( char *, const char *, va_list );
-extern int vsnprintf( char *, size_t, const char *, va_list );
+extern int qchvprintf( BaseSequentialStream* stream, const char *, va_list );
+extern int qchvprintft( BaseChannel* channel, systime_t timeout, const char *, va_list );
+extern int qchvsnprintf( char *, size_t, const char *, va_list );
 
 #endif /* PRINTF_H */
 
