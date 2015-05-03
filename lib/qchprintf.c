@@ -48,7 +48,7 @@
 
 struct format_args
 {
-    void* channel_stream;
+    void* channel_stream_fil;
     systime_t timeout;
 };
 
@@ -60,10 +60,7 @@ struct format_args
 /**
     General output consumer function for streams.
 
-    This function calls the generic putchar() function, which it is assumed is
-    available in the target environment.
-
-    @param op      Opaque pointer (UNUSED).
+    @param op      Opaque pointer.
     @param buf     Pointer to input buffer.
     @param n       Number of characters from buffer to send to output.
 
@@ -73,31 +70,50 @@ static void * outfunc_stream( void * op, const char * buf, size_t n )
 {
     struct format_args* args = op;
 
-    chSequentialStreamWrite( (BaseSequentialStream*)args->channel_stream, (const uint8_t*)buf, n );
+    chSequentialStreamWrite( (BaseSequentialStream*)args->channel_stream_fil,
+           (const uint8_t*)buf, n );
 
     return op;
 }
 
 /**
     General output consumer function for channel.
-    
-    This function calls the generic putchar() function, which it is assumed is
-    available in the target environment.
-    
-    @param op      Opaque pointer (UNUSED).
+    @param op      Opaque pointer.
     @param buf     Pointer to input buffer.
     @param n       Number of characters from buffer to send to output.
-    
+
     @return non-NULL.
 **/
 static void * outfunc_channel( void * op, const char * buf, size_t n )
 {
     struct format_args* args = op;
 
-    chnWriteTimeout( (BaseChannel*)args->channel_stream, (const uint8_t*)buf, n, args->timeout );
+    chnWriteTimeout( (BaseChannel*)args->channel_stream_fil,
+            (const uint8_t*)buf, n, args->timeout );
 
     return op;
 }
+
+#if FORMAT_INCLUDE_FATFS
+/**
+    General output consumer function for fil.
+
+    @param op      Opaque pointer.
+    @param buf     Pointer to input buffer.
+    @param n       Number of characters from buffer to send to output.
+
+    @return non-NULL.
+**/
+static void * outfunc_fil( void * op, const char * buf, size_t n )
+{
+    struct format_args* args = op;
+
+    UINT w = 0;
+    f_write( (FIL*)args->channel_stream_fil, (const uint8_t*)buf, n, &w );
+
+    return op;
+}
+#endif /* FORMAT_INCLUDE_FATFS */
 
 /*****************************************************************************/
 /* Public functions.  Declared as per header file.                           */
@@ -107,6 +123,7 @@ static void * outfunc_channel( void * op, const char * buf, size_t n )
 /**
     Produce output according to a format string, with optional argument list.
     
+    @param stream   Stream to write to.
     @param fmt      Format specifier.
     @param ap       Argument list.
     
@@ -116,14 +133,35 @@ int qchvprintf ( BaseSequentialStream* stream, const char *fmt, va_list ap )
 {
     struct format_args args =
     {
-        .channel_stream = stream,
+        .channel_stream_fil = stream,
     };
     return format( outfunc_stream, &args, fmt, ap );
 }
 
+#if FORMAT_INCLUDE_FATFS
 /**
     Produce output according to a format string, with optional argument list.
 
+    @param fp       File to write to.
+    @param fmt      Format specifier.
+    @param ap       Argument list.
+
+    @return Number of characters printed to the output, or -1.
+**/
+int qchvfprintf ( FIL* fp, const char *fmt, va_list ap )
+{
+    struct format_args args =
+    {
+        .channel_stream_fil = fp,
+    };
+    return format( outfunc_fil, &args, fmt, ap );
+}
+#endif /* FORMAT_INCLUDE_FATFS */
+
+/**
+    Produce output according to a format string, with optional argument list.
+
+    @param channel  Channel to write to.
     @param fmt      Format specifier.
     @param ap       Argument list.
 
@@ -133,7 +171,7 @@ int qchvprintft ( BaseChannel* channel, systime_t timeout, const char *fmt, va_l
 {
     struct format_args args =
     {
-        .channel_stream = channel,
+        .channel_stream_fil = channel,
         .timeout = timeout,
     };
     return format( outfunc_channel, &args, fmt, ap );
@@ -143,6 +181,7 @@ int qchvprintft ( BaseChannel* channel, systime_t timeout, const char *fmt, va_l
 /**
     Produce output according to a format string, with optional arguments.
     
+    @param stream   Stream to write to.
     @param fmt      Format specifier.
     
     @return Number of characters printed to the output, or -1.
@@ -159,9 +198,32 @@ int qchprintf ( BaseSequentialStream* stream, const char *fmt, ... )
     return done;
 }
 
+#if FORMAT_INCLUDE_FATFS
 /**
     Produce output according to a format string, with optional arguments.
 
+    @param fp       File to write to.
+    @param fmt      Format specifier.
+
+    @return Number of characters printed to the output, or -1.
+**/
+int qchfprintf ( FIL* fp, const char *fmt, ... )
+{
+    va_list arg;
+    int done;
+
+    va_start ( arg, fmt );
+    done = qchvfprintf( fp, fmt, arg );
+    va_end ( arg );
+
+    return done;
+}
+#endif /* FORMAT_INCLUDE_FATFS */
+
+/**
+    Produce output according to a format string, with optional arguments.
+
+    @param channel  Channel to write to.
     @param fmt      Format specifier.
 
     @return Number of characters printed to the output, or -1.
