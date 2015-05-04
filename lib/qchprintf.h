@@ -46,6 +46,12 @@ extern int qchvprintf( BaseSequentialStream* stream, const char *, va_list );
 extern int qchvprintft( BaseChannel* channel, systime_t timeout, const char *, va_list );
 extern int qchvsnprintf( char *, size_t, const char *, va_list );
 
+#if FORMAT_INCLUDE_FATFS
+#include "ff.h"
+extern int qchfprintf( FIL* fp, const char *, ... );
+extern int qchfvprintf( FIL* fp, const char *, va_list );
+#endif /* FORMAT_INCLUDE_FATFS */
+
 #endif /* PRINTF_H */
 
 /*****************************************************************************/
