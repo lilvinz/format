@@ -5,3 +5,5 @@ CSRC += $(wildcard $(FORMAT_DIR)/src/format.c)
 CSRC += $(wildcard $(FORMAT_DIR)/lib/*.c)
 EXTRAINCDIRS += $(FORMAT_DIR)/src
 EXTRAINCDIRS += $(FORMAT_DIR)/lib
+
+CFLAGS += -DHAS_FORMAT
