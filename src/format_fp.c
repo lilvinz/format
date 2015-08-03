@@ -886,7 +886,7 @@ static int do_conv_k( T_FormatSpec * pspec,
     union {
         double d;
         DEC_MANT_REG_TYPE b;
-    } u;
+    } u = { 0.0d };
 
     if ( total_bytes == 0 )
         return EXBADFORMAT;
