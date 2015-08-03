@@ -87,8 +87,15 @@
 #define MAXPREC         ( 500 )
 #define MAXBASE         ( 36 )
 #define BUFLEN          ( 130 )  /* Must be long enough for 64-bit pointers
-                                     in binary with maximum grouping chars and
-                                     prefix. */
+                                  * in binary with maximum grouping chars and
+                                  * prefix:
+                                  *  "0b" + 64 digits + 64 grouping chars
+                                  */
+
+/* Fixed-point field width limits */
+#define MAX_XP_INT      ( sizeof(int) * CHAR_BIT )
+#define MAX_XP_FRAC     ( sizeof(int) * CHAR_BIT )
+#define MAX_XP_WIDTH    ( sizeof(long) * CHAR_BIT )
 
 /**
     Return the maximum/minimum of two scalar values.
@@ -105,17 +112,6 @@
     Return the absolute value of a signed scalar value.
 **/
 #define ABS(a)          ( (a) < 0 ? -(a) : (a) )
-
-/** Set up platform-dependent access to variable arguments **/
-#if defined(CONFIG_VA_LIST_AS_ARRAY_TYPE)
-  #define VARGS(x)        (x)
-  #define VALPARM(y)      va_list y
-  #define VALST(z)        (z)
-#else
-  #define VARGS(x)        (&x)
-  #define VALPARM(y)      const va_list *y
-  #define VALST(z)        (*z)
-#endif
 
 /*****************************************************************************/
 /**
@@ -204,6 +200,10 @@ typedef struct {
         const void *  ptr;  /**< ptr to grouping specification      **/
         size_t        len;  /**< length of grouping spec            **/
     } grouping;
+    struct {
+        size_t w_int;       /**< fixed-point integer field width    **/
+        size_t w_frac;      /**< fixed-point fractional field width **/
+    } xp;
 } T_FormatSpec;
 
 /*****************************************************************************/
@@ -221,7 +221,7 @@ static const char zeroes[] = "0000000000000000";
 /* Private function prototypes.  Declare as static.                          */
 /*****************************************************************************/
 
-static int do_conv( T_FormatSpec *, VALPARM(), char,
+static int do_conv( T_FormatSpec *, va_list *, char,
                     void *(*)(void *, const char *, size_t), void * * );
 
 static int emit( const char *, size_t,
@@ -247,15 +247,15 @@ static void * memcpy( void *, const void *, size_t );
 #endif
 
 /** Conversion handlers **/
-static int do_conv_n( T_FormatSpec *, VALPARM() );
+static int do_conv_n( T_FormatSpec *, va_list * );
 
-static int do_conv_c( T_FormatSpec *, VALPARM(), char,
+static int do_conv_c( T_FormatSpec *, va_list *, char,
                       void * (*)(void *, const char *, size_t), void * * );
 
-static int do_conv_s( T_FormatSpec *, VALPARM(), char,
+static int do_conv_s( T_FormatSpec *, va_list *, char,
                       void * (*)(void *, const char *, size_t), void * * );
 
-static int do_conv_numeric( T_FormatSpec *, VALPARM(), char,
+static int do_conv_numeric( T_FormatSpec *, va_list *, char,
                             void * (*)(void *, const char *, size_t), void * *,
                             unsigned int );
 
@@ -421,9 +421,9 @@ static int gen_out( void *(*cons)(void *, const char *, size_t), void * * parg,
     @param ps2          Pointer to store right padding. May be NULL.
 **/
 static void calc_space_padding( T_FormatSpec * pspec,
-                                size_t length,
-                                size_t *ps1,
-                                size_t *ps2 )
+                                size_t         length,
+                                size_t *       ps1,
+                                size_t *       ps2 )
 {
     size_t left = 0, right = 0, width = 0;
 
@@ -449,10 +449,66 @@ static void calc_space_padding( T_FormatSpec * pspec,
 /*****************************************************************************/
 /**
     Floating Point code is in a separate source file for clarity.
-    Pull it in if required.
+    Pull it in if required, otherwise emit "?".
 **/
 #if defined(CONFIG_WITH_FP_SUPPORT)
 #include "format_fp.c"
+#else
+/**
+    When float support is not compiled in then consume the double argument
+    and print out a single "?".  Apply padding, spacing, etc.
+**/
+static int do_conv_fp( T_FormatSpec * pspec,
+                       va_list *      ap,
+                       char           code,
+                       void *      (* cons)(void *, const char *, size_t),
+                       void * *       parg )
+{
+    size_t length = 0;
+    size_t ps1 = 0, ps2 = 0;
+    const char *s = "?";
+    double dv = va_arg( *ap, double ); /* consume argument */
+
+    length = STRLEN( s );
+    if ( pspec->prec >= 0 )
+        length = MIN( pspec->prec, length );
+
+    calc_space_padding( pspec, length, &ps1, &ps2 );
+
+    return gen_out( cons, parg, ps1, NULL, 0, 0, s, length, ps2 );
+}
+
+/**
+    Likewise, consume the argument (of the appropriate size), and print out
+    a single "?", with padding, spacing, etc.
+**/
+static int do_conv_k( T_FormatSpec * pspec,
+                      va_list *      ap,
+                      char           code,
+                      void *      (* cons)(void *, const char *, size_t),
+                      void * *       parg )
+{
+    size_t total_bits = pspec->xp.w_int + pspec->xp.w_frac;
+    size_t total_bytes = ( total_bits + 7 ) / 8;
+    long v;
+    const char *s = "?";
+        
+    if ( total_bytes == 0 )
+        return EXBADFORMAT;
+    
+    if ( total_bytes <= sizeof( int ) )
+        v = (long)va_arg( *ap, int );
+    else
+        v = (long)va_arg( *ap, long );
+
+    length = STRLEN( s );
+    if ( pspec->prec >= 0 )
+        length = MIN( pspec->prec, length );
+
+    calc_space_padding( pspec, length, &ps1, &ps2 );
+
+    return gen_out( cons, parg, ps1, NULL, 0, 0, s, length, ps2 );
+}
 #endif
 
 /*****************************************************************************/
@@ -465,9 +521,9 @@ static void calc_space_padding( T_FormatSpec * pspec,
     @return 0 as no characters are emitted.
 **/
 static int do_conv_n( T_FormatSpec * pspec,
-                      VALPARM(ap) )
+                      va_list *      ap )
 {
-    void *vp = va_arg(VALST(ap), void *);
+    void *vp = va_arg( *ap, void * );
 
     if ( vp )
     {
@@ -502,7 +558,7 @@ static int do_conv_n( T_FormatSpec * pspec,
     @return Number of emitted characters, or EXBADFORMAT if failure
 **/
 static int do_conv_c( T_FormatSpec * pspec,
-                      VALPARM(ap),
+                      va_list *      ap,
                       char           code,
                       void *      (* cons)(void *, const char *, size_t),
                       void * *       parg )
@@ -512,7 +568,7 @@ static int do_conv_c( T_FormatSpec * pspec,
     unsigned int rep;
 
     if ( code == 'c' )
-        cc = (char)va_arg(VALST(ap), int);
+        cc = (char)va_arg( *ap, int );
     else
         cc = pspec->repchar;
 
@@ -546,7 +602,7 @@ static int do_conv_c( T_FormatSpec * pspec,
     @return Number of emitted characters, or EXBADFORMAT if failure
 **/
 static int do_conv_s( T_FormatSpec * pspec,
-                      VALPARM(ap),
+                      va_list *      ap,
                       char           code,
                       void *      (* cons)(void *, const char *, size_t),
                       void * *       parg )
@@ -554,7 +610,7 @@ static int do_conv_s( T_FormatSpec * pspec,
     size_t length = 0;
     size_t ps1 = 0, ps2 = 0;
 
-    const char *s = va_arg(VALST(ap), const char *);
+    const char *s = va_arg( *ap, const char * );
 
     if ( s == NULL )
         s = "(null)";
@@ -587,7 +643,7 @@ static int do_conv_s( T_FormatSpec * pspec,
 
 #if defined(CONFIG_HAVE_ALT_PTR)
 static int do_conv_s_alt( T_FormatSpec * pspec,
-                          VALPARM(ap),
+                          va_list *      ap,
                           char           code,
                           void *      (* cons)(void *, const char *, size_t),
                           void * *       parg )
@@ -597,7 +653,7 @@ static int do_conv_s_alt( T_FormatSpec * pspec,
     size_t n = 0;
     static ROM_DECL(char null_string[]) = "(null)";
 
-    const void *vp = (const void*)va_arg(VALST(ap), ROM_PTR_T);
+    const void *vp = (const void*)va_arg( *ap, ROM_PTR_T );
 
     if ( vp == NULL )
         vp = null_string;
@@ -644,7 +700,7 @@ static int do_conv_s_alt( T_FormatSpec * pspec,
     @return Number of emitted characters, or EXBADFORMAT if failure
 **/
 static int do_conv_numeric( T_FormatSpec * pspec,
-                            VALPARM(ap),
+                            va_list *      ap,
                             char           code,
                             void *      (* cons)(void *, const char *, size_t),
                             void * *       parg,
@@ -671,15 +727,15 @@ static int do_conv_numeric( T_FormatSpec * pspec,
         long v;
 
         if ( pspec->qual == 'l' )
-            v = (long)va_arg( VALST(ap), long );
+            v = (long)va_arg( *ap, long );
         else if ( pspec->qual == 'j' )
-            v = (long)va_arg( VALST(ap), intmax_t );
+            v = (long)va_arg( *ap, intmax_t );
         else if ( pspec->qual == 'z' )
-            v = (long)va_arg( VALST(ap), size_t );
+            v = (long)va_arg( *ap, size_t );
         else if ( pspec->qual == 't' )
-            v = (long)va_arg( VALST(ap), ptrdiff_t );
+            v = (long)va_arg( *ap, ptrdiff_t );
         else
-            v = (long)va_arg( VALST(ap), int );
+            v = (long)va_arg( *ap, int );
 
         if ( pspec->qual == 'h' )
             v = (short)v;
@@ -707,15 +763,15 @@ static int do_conv_numeric( T_FormatSpec * pspec,
     else
     {
         if ( pspec->qual == 'l' )
-            uv = (unsigned long)va_arg( VALST(ap), unsigned long );
+            uv = (unsigned long)va_arg( *ap, unsigned long );
         else if ( pspec->qual == 'j' )
-            uv = (unsigned long)va_arg( VALST(ap), uintmax_t );
+            uv = (unsigned long)va_arg( *ap, uintmax_t );
         else if ( pspec->qual == 'z' )
-            uv = (unsigned long)va_arg( VALST(ap), size_t );
+            uv = (unsigned long)va_arg( *ap, size_t );
         else if ( pspec->qual == 't' )
-            uv = (unsigned long)va_arg( VALST(ap), ptrdiff_t );
+            uv = (unsigned long)va_arg( *ap, ptrdiff_t );
         else
-            uv = (unsigned long)va_arg( VALST(ap), unsigned int );
+            uv = (unsigned long)va_arg( *ap, unsigned int );
 
         if ( pspec->qual == 'h' )
             uv = (unsigned short)uv;
@@ -845,7 +901,7 @@ static int do_conv_numeric( T_FormatSpec * pspec,
 
                 if ( grp == '*' )
                 {
-                    wid = (int)va_arg( VALST(ap), int );
+                    wid = (int)va_arg( *ap, int );
                     if ( wid < 0 )
                         break;
 
@@ -935,7 +991,7 @@ static int do_conv_numeric( T_FormatSpec * pspec,
     @return Number of emitted characters, or EXBADFORMAT if failure
 **/
 static int do_conv( T_FormatSpec * pspec,
-                    VALPARM(ap),
+                    va_list *      ap,
                     char           code,
                     void *      (* cons)(void *, const char *, size_t),
                     void * *       parg )
@@ -961,12 +1017,13 @@ static int do_conv( T_FormatSpec * pspec,
             return do_conv_s( pspec, ap, code, cons, parg );
     }
 
-#if defined(CONFIG_WITH_FP_SUPPORT)
     if ( code == 'e' || code == 'E'
       || code == 'f' || code == 'F'
       || code == 'g' || code == 'G' )
         return do_conv_fp( pspec, ap, code, cons, parg );
-#endif
+
+    if ( code == 'k' )
+        return do_conv_k( pspec, ap, code, cons, parg );
 
     /* -------------------------------------------------------------------- */
 
@@ -1032,14 +1089,14 @@ static int do_conv( T_FormatSpec * pspec,
     @param cons     Pointer to caller-provided consumer function.
     @param arg      Opaque pointer passed through to cons.
     @param fmt      Printf-compatible format specifier.
-    @param ap       List of optional format string arguments.
+    @param apx      List of optional format string arguments.
 
     @return Number of characters sent to @a cons, or EXBADFORMAT.
 **/
 int format( void *    (* cons) (void *, const char * , size_t),
             void *       arg,
             const char * fmt,
-            va_list      ap )
+            va_list      apx )
 {
     T_FormatSpec fspec;
 #if defined(CONFIG_HAVE_ALT_PTR)
@@ -1047,9 +1104,13 @@ int format( void *    (* cons) (void *, const char * , size_t),
 #endif
     char           c;
     const void   * ptr = (const void *)fmt;
+    va_list        ap;
+    
+    /* Setup varargs -- must va_end( ap ) before exit !! */
+    va_copy( ap, apx );
 
     if ( fmt == NULL )
-        return EXBADFORMAT;
+        goto exit_badformat;
 
     fspec.nChars = 0;
 
@@ -1066,15 +1127,16 @@ int format( void *    (* cons) (void *, const char * , size_t),
             /* For normal RAM-based strings we scan over as many input chars
              *  as we can to minimise calls to emit().
              */
-             for ( ; *s && *s != '%'; s++ )
-             ;
+            for ( ; *s && *s != '%'; s++ )
+                ;
 
-             n = s - (const char *)ptr;
+            n = s - (const char *)ptr;
             if ( n > 0 )
             {
                 if ( emit( (const char *)ptr, n, cons, &arg ) < 0 )
-                    return EXBADFORMAT;
-               fspec.nChars += n;
+                    goto exit_badformat;
+
+                fspec.nChars += n;
             }
             ptr = (const void *)s;
         }
@@ -1088,7 +1150,8 @@ int format( void *    (* cons) (void *, const char * , size_t),
             while ( ( c = ROM_CHAR(ptr) ) && c != '%' )
             {
                 if ( emit( &c, 1, cons, &arg ) < 0 )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
+
                 fspec.nChars++;
                 ptr++;
             }
@@ -1137,7 +1200,7 @@ int format( void *    (* cons) (void *, const char * , size_t),
             }
 
             if ( fspec.width > MAXWIDTH )
-                return EXBADFORMAT;
+                goto exit_badformat;
 
             /* process precision */
             if ( READ_CHAR( mode, ptr ) != '.' )
@@ -1147,7 +1210,7 @@ int format( void *    (* cons) (void *, const char * , size_t),
                 fspec.prec = va_arg( ap, int );
 
                 if ( fspec.prec > MAXPREC )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
 
                 INC_VOID_PTR(ptr);
             }
@@ -1160,7 +1223,7 @@ int format( void *    (* cons) (void *, const char * , size_t),
                     fspec.prec = fspec.prec * 10 + c - '0';
                 }
                 if ( fspec.prec > MAXPREC )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
             }
 
             /* process base */
@@ -1173,7 +1236,7 @@ int format( void *    (* cons) (void *, const char * , size_t),
                 if ( v < 0 )
                     fspec.base = 0;
                 else if ( v > MAXBASE )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
                 else
                     fspec.base = (unsigned int)v;
 
@@ -1188,14 +1251,14 @@ int format( void *    (* cons) (void *, const char * , size_t),
                     fspec.base = fspec.base * 10 + c - '0';
                 }
                 if ( fspec.base > MAXBASE )
-                    return EXBADFORMAT;
+                    goto exit_badformat; 
             }
 
             /* test for grouping qualifier */
             fspec.grouping.len = 0;
             fspec.grouping.ptr = NULL;
 #if defined(CONFIG_HAVE_ALT_PTR)
-            fspedc.grouping.mode = NORMAL_PTR;
+            fspec.grouping.mode = NORMAL_PTR;
 #endif
             c = READ_CHAR( mode, ptr );
             if ( c == '[' )
@@ -1218,13 +1281,74 @@ int format( void *    (* cons) (void *, const char * , size_t),
                     ++gplen;
                 }
                 if ( c == '\0' )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
 
                 /* skip over closing brace */
                 INC_VOID_PTR(ptr);
 
                 /* record the grouping spec length */
                 fspec.grouping.len = gplen;
+            }
+            else if ( c == '{' ) /* fixed-point specifier */
+            {
+                size_t p, q;
+
+                /* skip over opening brace */
+                INC_VOID_PTR( ptr );
+
+                /* get integer width */
+                if ( READ_CHAR( mode, ptr ) == '*' )
+                {
+                    p = va_arg( ap, int );
+
+                    INC_VOID_PTR( ptr );
+                }
+                else
+                {
+                    for ( p = 0;
+                         ( c = READ_CHAR( mode, ptr ) ) && ISDIGIT( c ) && p < MAX_XP_INT;
+                         INC_VOID_PTR( ptr ) )
+                    {
+                        p = p * 10 + c - '0';
+                    }
+                }
+
+                if ( p > MAX_XP_INT )
+                    goto exit_badformat;
+
+                /* get fractional width */
+                if ( READ_CHAR( mode, ptr ) != '.' )
+                    goto exit_badformat; /* fractional width is missing */
+                else if ( READ_CHAR( mode, INC_VOID_PTR(ptr) ) == '*' )
+                {
+                    q = va_arg( ap, int );
+
+                    INC_VOID_PTR( ptr );
+                }
+                else
+                {
+                    for ( q = 0;
+                         ( c = READ_CHAR( mode, ptr ) ) && ISDIGIT( c ) && q < MAX_XP_FRAC;
+                         INC_VOID_PTR( ptr ) )
+                    {
+                        q = q * 10 + c - '0';
+                    }
+                }
+
+                if ( c == '\0' )
+                    goto exit_badformat;
+
+                /* skip over closing brace */
+                INC_VOID_PTR( ptr );
+
+                if ( q > MAX_XP_FRAC )
+                    goto exit_badformat;
+
+                if ( p + q >= MAX_XP_WIDTH )
+                    goto exit_badformat;
+
+                fspec.xp.w_int  = p;
+                fspec.xp.w_frac = q;
             }
 
             /* test for length qualifier */
@@ -1265,7 +1389,7 @@ int format( void *    (* cons) (void *, const char * , size_t),
             {
                 c = READ_CHAR( mode, INC_VOID_PTR(ptr) );
                 if ( c == '\0' )
-                    return EXBADFORMAT;
+                    goto exit_badformat;
                 fspec.repchar = c;
             }
             else
@@ -1274,9 +1398,9 @@ int format( void *    (* cons) (void *, const char * , size_t),
             }
 
             /* now process the conversion type */
-            nn = do_conv( &fspec, VARGS(ap), convspec, cons, &arg );
+            nn = do_conv( &fspec, &ap, convspec, cons, &arg );
             if ( nn < 0 )
-                return EXBADFORMAT;
+                goto exit_badformat;
             else
                 fspec.nChars += (unsigned int)nn;
 
@@ -1284,7 +1408,12 @@ int format( void *    (* cons) (void *, const char * , size_t),
         }
     }
 
+    va_end( ap );
     return fspec.nChars;
+
+exit_badformat:
+    va_end( ap );
+    return EXBADFORMAT;
 }
 
 /*****************************************************************************/
