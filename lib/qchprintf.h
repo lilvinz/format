@@ -33,7 +33,7 @@
 #define PRINTF_H
 
 #include "ch.h"
-#include "io_channel.h"
+#include "hal_channels.h"
 
 #include <stdarg.h> /* for va_list */
 #include <stddef.h> /* for size_t */
