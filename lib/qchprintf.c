@@ -70,7 +70,7 @@ static void * outfunc_stream( void * op, const char * buf, size_t n )
 {
     struct format_args* args = op;
 
-    chSequentialStreamWrite( (BaseSequentialStream*)args->channel_stream_fil,
+    streamWrite( (BaseSequentialStream*)args->channel_stream_fil,
            (const uint8_t*)buf, n );
 
     return op;
@@ -264,7 +264,7 @@ int qchvsnprintf( char *buf, size_t n, const char *fmt, va_list ap )
     qchvprintf(chp, fmt, ap);
 
     /* Final zero and size return.*/
-    chSequentialStreamPut(chp, 0);
+    streamPut(chp, 0);
     return ms.eos - 1;
 }
 

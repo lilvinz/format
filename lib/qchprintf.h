@@ -32,8 +32,7 @@
 #ifndef PRINTF_H
 #define PRINTF_H
 
-#include "ch.h"
-#include "hal_channels.h"
+#include "hal.h"
 
 #include <stdarg.h> /* for va_list */
 #include <stddef.h> /* for size_t */
