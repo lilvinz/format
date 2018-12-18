@@ -46,7 +46,11 @@ extern int qchvprintft( BaseChannel* channel, systime_t timeout, const char *, v
 extern int qchvsnprintf( char *, size_t, const char *, va_list );
 
 #if FORMAT_INCLUDE_FATFS
+#if HAS_FATFS
 #include "ff.h"
+#else
+#include "fatfs_posix.h"
+#endif
 extern int qchfprintf( FIL* fp, const char *, ... );
 extern int qchfvprintf( FIL* fp, const char *, va_list );
 #endif /* FORMAT_INCLUDE_FATFS */
